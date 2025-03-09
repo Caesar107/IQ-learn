@@ -37,11 +37,14 @@ IQ-Learn is a **state-of-the-art imitation learning framework** that directly le
 ---
 
 ## **Installation & Usage**  
-$env:WANDB_MODE = "offline"
 
 Please refer to the [iq_learn](iq_learn) directory for installation and usage instructions.
 
 ---
+####if you can't use WANDB,then you may can use
+```
+$env:WANDB_MODE = "offline"
+```
 
 ## **Demonstrations**  
 
