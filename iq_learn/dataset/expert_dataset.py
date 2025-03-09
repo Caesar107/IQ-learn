@@ -145,7 +145,7 @@ def read_file(path: str, file_handle: IO[Any]) -> Dict[str, Any]:
     elif path.endswith("pkl"):
         data = pickle.load(file_handle)
     elif path.endswith("npy"):
-        data = np.load(file_handle, allow_pickle=True)
+        data = torch.load(file_handle)
         if data.ndim == 0:
             data = data.item()
     else:

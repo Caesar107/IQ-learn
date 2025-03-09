@@ -81,7 +81,7 @@ def main(cfg: DictConfig):
         else:
             print("[Attention]: Did not find checkpoint {}".format(args.pretrain))
 
-    # Load expert data
+    #·················Load expert data·································
     expert_memory_replay = Memory(REPLAY_MEMORY//2, args.seed)
     expert_memory_replay.load(hydra.utils.to_absolute_path(f'experts/{args.env.demo}'),
                               num_trajs=args.expert.demos,
