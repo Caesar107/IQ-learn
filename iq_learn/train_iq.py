@@ -27,6 +27,7 @@ from agent import make_agent
 from utils.utils import eval_mode, average_dicts, get_concat_samples, evaluate, soft_update, hard_update
 from utils.logger import Logger
 from iq import iq_loss
+from utils.kl_utils import compute_kl_divergence, load_expert_policy
 
 torch.set_num_threads(2)
 
@@ -88,6 +89,18 @@ def main(cfg: DictConfig):
                               sample_freq=args.expert.subsample_freq,
                               seed=args.seed + 42)
     print(f'--> Expert memory size: {expert_memory_replay.size()}')
+    
+    # Load expert policy for KL calculation if we're in CartPole environment
+    expert_policy = None
+    if "CartPole" in args.env.name:
+        expert_path = hydra.utils.to_absolute_path(f'experts/cartpole.zip')
+        print(f"Looking for expert policy at: {expert_path}")
+        expert_policy = load_expert_policy(expert_path, args.env.name, device, env)
+        
+        if expert_policy is not None:
+            print(f"--> Successfully loaded expert policy for KL calculation")
+        else:
+            print(f"--> Failed to load expert policy. KL metrics will not be available.")
 
     online_memory_replay = Memory(REPLAY_MEMORY//2, args.seed+1)
 
@@ -176,11 +189,42 @@ def main(cfg: DictConfig):
                 agent.iq_update_critic = types.MethodType(iq_update_critic, agent)
                 losses = agent.iq_update(online_memory_replay,
                                          expert_memory_replay, logger, learn_steps)
+                # Initialize losses dict if it's None
+                if losses is None:
+                    losses = {}
                 ######
 
+                # Calculate and log KL divergence periodically - keep this separate from main training
                 if learn_steps % args.log_interval == 0:
-                    for key, loss in losses.items():
-                        writer.add_scalar(key, loss, global_step=learn_steps)
+                    if expert_policy is not None and expert_memory_replay.size() > 0:
+                        with torch.no_grad():  # Make sure we don't track gradients for KL
+                            try:
+                                # Sample states from expert memory for KL calculation
+                                expert_states = expert_memory_replay.sample_states(batch_size=min(128, expert_memory_replay.size()))
+                                kl_value = compute_kl_divergence(agent, expert_policy, expert_states, device)
+                                
+                                # Direct logging to tensorboard
+                                print(f"KL divergence at step {learn_steps}: {kl_value:.6f}")
+                                writer.add_scalar('train/kl_divergence', kl_value, global_step=learn_steps)
+                                
+                                # Also log to logger
+                                logger.log('train/kl_divergence', kl_value, learn_steps)
+                                
+                                # Force tensorboard to write files immediately
+                                writer.flush()
+                            except Exception as e:
+                                import traceback
+                                print(f"Error calculating KL divergence: {e}")
+                                traceback.print_exc()
+                                # KL calculation failed, but don't let it affect training
+                                pass
+
+                # Log all metrics to tensorboard
+                if learn_steps % args.log_interval == 0:
+                    # Log regular training metrics
+                    if losses:
+                        for key, loss in losses.items():
+                            writer.add_scalar(key, loss, global_step=learn_steps)
 
             if done:
                 break

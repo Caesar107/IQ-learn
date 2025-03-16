@@ -71,3 +71,24 @@ class Memory(object):
         batch_done = torch.as_tensor(batch_done, dtype=torch.float, device=device).unsqueeze(1)
 
         return batch_state, batch_next_state, batch_action, batch_reward, batch_done
+
+    def sample_states(self, batch_size):
+        """
+        Sample a batch of states from memory.
+        
+        Args:
+            batch_size: Number of states to sample
+            
+        Returns:
+            Numpy array of states [batch_size, state_dim]
+        """
+        idxs = np.random.randint(0, self.size(), size=batch_size)
+        # Use self.buffer instead of self.storage
+        states = [self.buffer[idx][0] for idx in idxs]
+        
+        if isinstance(states[0], LazyFrames):
+            states = np.array(states) / 255.0
+        else:
+            states = np.array(states)
+        
+        return states

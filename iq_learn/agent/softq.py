@@ -62,14 +62,20 @@ class SoftQ(object):
 
         return action.detach().cpu().numpy()[0]
 
-    def getV(self, obs):
+    def getV(self, obs, get_q=False):
+        """Get the V values for given states or Q values if get_q=True."""
         q = self.q_net(obs)
-        v = self.alpha * \
-            torch.logsumexp(q/self.alpha, dim=1, keepdim=True)
-        return v
+        if get_q:
+            # For KL calculation, return Q-values directly
+            return q
+        else:
+            # Original V calculation for value function
+            v = self.alpha * torch.logsumexp(q/self.alpha, dim=1, keepdim=True)
+            return v
 
     def critic(self, obs, action, both=False):
-        q = self.q_net(obs, both)
+        """Original critic method."""
+        q = self.q_net(obs)
         if isinstance(q, tuple) and both:
             q1, q2 = q
             critic1 = q1.gather(1, action.long())
@@ -77,6 +83,15 @@ class SoftQ(object):
             return critic1, critic2
 
         return q.gather(1, action.long())
+    
+    # Add a helper method for KL calculation that doesn't alter the original API
+    def get_q_values(self, obs):
+        """Get Q-values for all actions for the given observations.
+        This is used specifically for KL calculation.
+        """
+        with torch.no_grad():
+            q = self.q_net(obs)
+        return q
 
     def get_targetV(self, obs):
         q = self.target_net(obs)

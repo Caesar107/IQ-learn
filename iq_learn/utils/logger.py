@@ -83,13 +83,38 @@ class MetersGroup(object):
         return data
 
     def _dump_to_csv(self, data):
+        # Make sure all expected fields are in the data
+        for key, _, _ in self._formating:
+            if key not in data and key != 'kl_divergence':  # Skip check for kl_divergence
+                # Add default value of 0 for missing fields
+                simple_key = key.split('/')[-1] if '/' in key else key
+                data[simple_key] = 0.0
+        
+        # Ensure kl_divergence is included
+        if 'kl_divergence' not in data:
+            data['kl_divergence'] = 0.0
+        
         if self._csv_writer is None:
             self._csv_writer = csv.DictWriter(self._csv_file,
                                               fieldnames=sorted(data.keys()),
                                               restval=0.0)
             self._csv_writer.writeheader()
-        self._csv_writer.writerow(data)
-        self._csv_file.flush()
+        
+        try:
+            self._csv_writer.writerow(data)
+            self._csv_file.flush()
+        except ValueError as e:
+            print(f"CSV error: {e}")
+            print(f"Fields in data: {list(data.keys())}")
+            print(f"Expected fields: {sorted([key for key, _, _ in self._formating])}")
+            # Add any missing fields with default values
+            for key in sorted([key for key, _, _ in self._formating]):
+                simple_key = key.split('/')[-1] if '/' in key else key
+                if simple_key not in data:
+                    data[simple_key] = 0.0
+            # Try again with corrected data
+            self._csv_writer.writerow(data)
+            self._csv_file.flush()
 
     def _format(self, key, value, ty):
         if ty == 'int':
@@ -146,11 +171,27 @@ class Logger(object):
                 self._sw = None
         # each agent has specific output format for training
         assert agent in AGENT_TRAIN_FORMAT
+        
+        # Ensure kl_divergence is included in the formats
+        if agent == 'softq' and not any(item[0] == 'kl_divergence' for item in AGENT_TRAIN_FORMAT[agent]):
+            AGENT_TRAIN_FORMAT[agent].append(('kl_divergence', 'KL', 'float'))
+        
         train_format = COMMON_TRAIN_FORMAT + AGENT_TRAIN_FORMAT[agent]
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        deduplicated_train_format = []
+        for item in train_format:
+            if item[0] not in seen:
+                seen.add(item[0])
+                deduplicated_train_format.append(item)
+        
         self._train_mg = MetersGroup(os.path.join(log_dir, 'train'),
-                                     formating=train_format)
+                                     formating=deduplicated_train_format)
         self._eval_mg = MetersGroup(os.path.join(log_dir, 'eval'),
                                     formating=COMMON_EVAL_FORMAT)
+        # Add a data dictionary to store the latest logged values
+        self.data = {}
 
     def _should_log(self, step, log_frequency):
         log_frequency = log_frequency or self._log_frequency
@@ -179,6 +220,9 @@ class Logger(object):
         self._try_sw_log(key, value / n, step)
         mg = self._train_mg if key.startswith('train') else self._eval_mg
         mg.log(key, value, n)
+        
+        # Store the value in the data dictionary
+        self.data[key] = [value / n, step]
 
     def log_param(self, key, param, step, log_frequency=None):
         if not self._should_log(step, log_frequency):
@@ -213,6 +257,11 @@ class Logger(object):
             self._train_mg.dump(step, 'train', save)
         else:
             raise f'invalid log type: {ty}'
+        
+        # Debug print for KL value
+        if 'train/kl_divergence' in self.data:
+            kl_value = self.data['train/kl_divergence'][0]
+            print(f"Logger KL value: {kl_value:.6f}")
 
 
 # def setup_logger(filepath):
