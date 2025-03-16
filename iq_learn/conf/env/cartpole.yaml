@@ -2,7 +2,7 @@
 
 env:
   name: CartPole-v1
-  demo: CartPole-v1 # Expert demo containing upto 1000 trajectories
+  demo: CartPole-v1_expert_trajs # Expert demo containing upto 1000 trajectories
   learn_steps: 1e5
   eval_interval: 1e3
 

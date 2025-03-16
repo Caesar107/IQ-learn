@@ -13,7 +13,8 @@ COMMON_TRAIN_FORMAT = [
     ('episode', 'E', 'int'),
     ('step', 'S', 'int'),
     ('episode_reward', 'R', 'float'),
-    ('duration', 'D', 'time')
+    ('duration', 'D', 'time'),
+    ('kl_divergence', 'KL', 'float')  # Add KL divergence metric
 ]
 
 COMMON_EVAL_FORMAT = [
@@ -30,7 +31,8 @@ AGENT_TRAIN_FORMAT = {
         ('critic_loss', 'CLOSS', 'float'),
         ('alpha_loss', 'TLOSS', 'float'),
         ('alpha_value', 'TVAL', 'float'),
-        ('actor_entropy', 'AENT', 'float')
+        ('actor_entropy', 'AENT', 'float'),
+        ('kl_divergence', 'KL', 'float')  # Add KL divergence metric
     ],
     'softq': [
         # ('batch_reward', 'BR', 'float'),
