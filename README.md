@@ -60,13 +60,6 @@ IQ-Learn achieving human-level imitation in various Atari games:
 <img src="videos/qbert.gif" width="250">
 </p>
 
-### **Reward Recovery on GridWorld**  
-IQ-Learn successfully recovers environment reward functions in GridWorld:  
-
-![Grid](videos/grid.jpg)
-
----
-
 ## **Citing This Work**  
 If you use this code, please cite the original **IQ-Learn** paper:  
 
