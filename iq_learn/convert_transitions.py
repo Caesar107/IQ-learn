@@ -8,7 +8,7 @@ parser.add_argument('--env_name', type=str, required=True, help='Name of the env
 args = parser.parse_args()
 
 # Load transitions from file
-transitions_file = f'e:\\TRRL\\IQ-Learn\\iq_learn\\experts\\transitions_{args.env_name}.npy'
+transitions_file = f'./experts/transitions_{args.env_name}.npy'
 transitions = torch.load(transitions_file)
 
 # Print the structure of the transitions
@@ -81,7 +81,7 @@ for episode in episodes:
 print("Lengths of the episodes:", expert_trajs["lengths"])
 
 # Save expert trajectories as NumPy array
-output_file = f'e:\\TRRL\\IQ-Learn\\iq_learn\\experts\\{args.env_name}_expert_trajs.npy'
+output_file = f'./experts/{args.env_name}_expert_trajs.npy'
 np.save(output_file, expert_trajs, allow_pickle=True)
 
 print('Expert trajectories saved successfully in ExpertDataset-compatible format.')

@@ -90,17 +90,32 @@ def main(cfg: DictConfig):
                               seed=args.seed + 42)
     print(f'--> Expert memory size: {expert_memory_replay.size()}')
     
-    # Load expert policy for KL calculation if we're in CartPole environment
+    # Load expert policy for KL calculation based on environment name
     expert_policy = None
-    if "CartPole" in args.env.name:
-        expert_path = hydra.utils.to_absolute_path(f'experts/cartpole.zip')
-        print(f"Looking for expert policy at: {expert_path}")
-        expert_policy = load_expert_policy(expert_path, args.env.name, device, env)
-        
-        if expert_policy is not None:
-            print(f"--> Successfully loaded expert policy for KL calculation")
-        else:
-            print(f"--> Failed to load expert policy. KL metrics will not be available.")
+    env_name = args.env.name
+    env_name_normalized = env_name.lower().replace('-', '_')
+    
+    # Auto-detect expert path based on environment name
+    expert_path = hydra.utils.to_absolute_path(f'experts/{env_name_normalized}.zip')
+    if not os.path.exists(expert_path):
+        # Try alternate path formats
+        alternate_paths = [
+            hydra.utils.to_absolute_path(f'experts/{env_name}.zip'),
+            hydra.utils.to_absolute_path(f'expert_data/{env_name_normalized}.zip'),
+            hydra.utils.to_absolute_path(f'expert_data/{env_name}.zip')
+        ]
+        for path in alternate_paths:
+            if os.path.exists(path):
+                expert_path = path
+                break
+    
+    print(f"Looking for expert policy at: {expert_path}")
+    expert_policy = load_expert_policy(expert_path, env_name, device, env)
+    
+    if expert_policy is not None:
+        print(f"--> Successfully loaded expert policy for KL calculation")
+    else:
+        print(f"--> Failed to load expert policy. KL metrics will not be available.")
 
     online_memory_replay = Memory(REPLAY_MEMORY//2, args.seed+1)
 
