@@ -33,7 +33,7 @@ env:
   initial_mem: 1280
   eps_steps: 1000
   eps_window: 100
-  learn_steps: 5e5
+  learn_steps: 1e5
   eval_interval: 5e3
 
   # use pixels

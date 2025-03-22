@@ -210,7 +210,7 @@ def main(cfg: DictConfig):
                 ######
 
                 # Calculate and log KL divergence periodically - keep this separate from main training
-                if learn_steps % args.log_interval == 0:
+                if learn_steps % args.env.eval_interval == 0:
                     if expert_policy is not None and expert_memory_replay.size() > 0:
                         with torch.no_grad():  # Make sure we don't track gradients for KL
                             try:
@@ -219,11 +219,13 @@ def main(cfg: DictConfig):
                                 kl_value = compute_kl_divergence(agent, expert_policy, expert_states, device)
                                 
                                 # Direct logging to tensorboard
-                                print(f"KL divergence at step {learn_steps}: {kl_value:.6f}")
-                                writer.add_scalar('train/kl_divergence', kl_value, global_step=learn_steps)
+                                scaled_step = learn_steps // 100
+                                print(f"KL divergence at step {scaled_step}: {kl_value:.6f}")
+                                writer.add_scalar('train/kl_divergence', kl_value, global_step=scaled_step)
                                 
+                                scaled_step = learn_steps // 100
                                 # Also log to logger
-                                logger.log('train/kl_divergence', kl_value, learn_steps)
+                                logger.log('train/kl_divergence', kl_value, scaled_step)
                                 
                                 # Force tensorboard to write files immediately
                                 writer.flush()
@@ -246,10 +248,11 @@ def main(cfg: DictConfig):
             state = next_state
 
         rewards_window.append(episode_reward)
-        logger.log('train/episode', epoch, learn_steps)
-        logger.log('train/episode_reward', episode_reward, learn_steps)
-        logger.log('train/duration', time.time() - start_time, learn_steps)
-        logger.dump(learn_steps, save=begin_learn)
+        scaled_step = learn_steps // 100
+        logger.log('train/episode', epoch, scaled_step)
+        logger.log('train/episode_reward', episode_reward, scaled_step)
+        logger.log('train/duration', time.time() - start_time, scaled_step)
+        logger.dump(scaled_step, save=begin_learn)
         # print('TRAIN\tEp {}\tAverage reward: {:.2f}\t'.format(epoch, np.mean(rewards_window)))
         save(agent, epoch, args, output_dir='results')
 
