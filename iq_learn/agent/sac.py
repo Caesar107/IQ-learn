@@ -72,7 +72,8 @@ class SAC(object):
         # assert action.ndim == 2 and action.shape[0] == 1
         return action.detach().cpu().numpy()[0]
 
-    def getV(self, obs):
+    def getV(self, obs, get_q=False):
+        # ignore get_q parameter
         action, log_prob, _ = self.actor.sample(obs)
         current_Q = self.critic(obs, action)
         current_V = current_Q - self.alpha.detach() * log_prob
