@@ -1,7 +1,9 @@
 """
 Utility functions for computing KL divergence between policies.
 """
-
+import numpy as np
+if not hasattr(np, 'bool'):
+    np.bool = bool
 import os
 import zipfile
 import torch

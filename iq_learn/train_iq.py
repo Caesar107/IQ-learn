@@ -14,6 +14,8 @@ import types
 
 import hydra
 import numpy as np
+if not hasattr(np, 'bool'):
+    np.bool = bool
 import torch
 import torch.nn.functional as F
 import wandb

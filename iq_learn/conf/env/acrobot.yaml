@@ -1,9 +1,9 @@
 # @package _global_
-
+#python train_iq.py agent=softq method=iq env=acrobot expert.demos=64 expert.subsample_freq=4 agent.init_temp=0.001 method.chi=True method.loss=value_expert
 env:
   name: Acrobot-v1
-  demo: Acrobot-v1_1000.pkl
-  learn_steps: 2e5
+  demo: Acrobot_expert_trajs
+  learn_steps: 1e5
   eval_interval: 1e3
 
 expert:
@@ -12,7 +12,7 @@ expert:
 
 eval:
   policy: 
-  threshold: 
+  threshold: 500
 
 q_net:
   _target_: agent.softq_models.OfflineQNetwork

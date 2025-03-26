@@ -2,8 +2,8 @@
 
 env:
   name: LunarLander-v2
-  demo: LunarLander-v2_1000
-  learn_steps: 1e6
+  demo: LunarLander-v2_expert_trajs
+  learn_steps: 1e5
   eval_interval: 1e3
 
 expert:

@@ -42,6 +42,15 @@ IQ-Learn is the only method thats reaches the expert env reward of **500** (requ
 
 <img src="../docs/cartpole_example.png" width="500"> 
 
+For other enviroment in gym or box2x,use:
+```
+python train_iq.py agent=softq method=iq env=lunarlander expert.demos=64 expert.subsample_freq=20 agent.init_temp=0.001 method.chi=True method.loss=value_expert
+```
+```
+python train_iq.py agent=softq method=iq env=acrobot expert.demos=64 expert.subsample_freq=20 agent.init_temp=0.001 method.chi=True method.loss=value_expert
+```
+
+
 ### 2. Playing Pong at human performance
 
 ```

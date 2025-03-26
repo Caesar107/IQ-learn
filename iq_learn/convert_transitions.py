@@ -3,6 +3,8 @@ import numpy as np
 import argparse
 
 # Parse command-line arguments
+#python convert_transitions.py --env_name acrobot
+#python convert_transitions.py --env_name LunarLander-v2 BipedalWalker-v3
 parser = argparse.ArgumentParser(description='Convert transitions to expert trajectories.')
 parser.add_argument('--env_name', type=str, required=True, help='Name of the environment')
 args = parser.parse_args()
