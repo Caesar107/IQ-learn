@@ -45,6 +45,26 @@ Please refer to the [iq_learn](iq_learn) directory for installation and usage in
 ```
 $env:WANDB_MODE = "offline"
 ```
+---
+
+## **Trajectory Conversion Tool**  
+
+We provide a utility script `convert_transitions.py` to **convert expert trajectories** into the format required by IQ-Learn.  
+
+This is useful when you have custom environments or datasets and want to apply IQ-Learn directly.  
+
+### **Usage Example:**  
+```bash
+python convert_transitions.py --input expert_data.pkl --output processed_data.pt
+```
+
+### **Options:**  
+- `--input`: Path to your raw expert data file (e.g., a pickle or JSON file).  
+- `--output`: Output file path in IQ-Learn-compatible `.pt` format.  
+
+> Make sure your expert data includes state, action, next_state, reward, and done fields.
+
+---
 
 ## **Demonstrations**  
 
