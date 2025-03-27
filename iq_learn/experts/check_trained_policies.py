@@ -21,19 +21,16 @@ For each file under the specified `folder_path`, it tries to:
 - To debug loading errors or understand legacy formats
 - To prepare for converting or reusing trained policies
 
-📂 Expected Folder Structure:
+📂 Expected Input:
 -----------------------------
-Place all trained model files in a directory such as:
-    E:/TRRL/IQ-Learn/iq_learn/trained_policies/
-
-You can customize `folder_path` at the top of the script.
+Can be either:
+- A directory path containing model files
+- A direct path to a single model file
 
 🛠 Example usage:
 -----------------
 Just run:
     python check_trained_policies.py
-
-The script will recursively inspect all files in the specified directory.
 """
 
 
@@ -41,8 +38,10 @@ import os
 import torch
 import numpy as np
 import pickle
+import sys
 
-folder_path = r"E:\TRRL\IQ-Learn\iq_learn\trained_policies"
+# Path to check - can be a directory or a single file
+path_to_check = r"/home/yche767/IQ-learn/iq_learn/experts/Ant-v4_expert_trajs.npy"
 
 def check_file(file_path):
     print(f"\nChecking file: {file_path}")
@@ -70,12 +69,22 @@ def check_file(file_path):
         if isinstance(data, np.ndarray):
             print("Type: numpy.ndarray")
             print("Shape:", data.shape)
+            print("Data type:", data.dtype)
             if data.dtype == 'object':
                 print("Possibly contains a dict, trying to extract...")
-                inner = data.item()
-                print("Inner type:", type(inner))
-                if isinstance(inner, dict):
-                    print("Keys:", list(inner.keys()))
+                try:
+                    inner = data.item()
+                    print("Inner type:", type(inner))
+                    if isinstance(inner, dict):
+                        print("Keys:", list(inner.keys()))
+                except:
+                    print("Could not extract item from array")
+            else:
+                # Print a sample of the array if it's not too big
+                if data.size < 100:
+                    print("Sample data:", data[:10])
+                else:
+                    print("Sample data:", data.flatten()[:10], "...")
         else:
             print("Type:", type(data))
     except Exception as e:
@@ -92,8 +101,19 @@ def check_file(file_path):
     except Exception as e:
         print(f"pickle.load failed ❌: {e}")
 
-# Go through all files in the folder
-for root, dirs, files in os.walk(folder_path):
-    for filename in files:
-        file_path = os.path.join(root, filename)
-        check_file(file_path)
+def main():
+    if os.path.isfile(path_to_check):
+        # If path is a single file
+        check_file(path_to_check)
+    elif os.path.isdir(path_to_check):
+        # If path is a directory
+        for root, dirs, files in os.walk(path_to_check):
+            for filename in files:
+                file_path = os.path.join(root, filename)
+                check_file(file_path)
+    else:
+        print(f"Error: Path '{path_to_check}' does not exist!")
+        return
+
+if __name__ == "__main__":
+    main()

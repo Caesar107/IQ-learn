@@ -2,7 +2,7 @@
 
 env:
   name: Ant-v2
-  demo: Ant-v2_25.pkl
+  demo: Ant-v4_expert_trajs
   # learn_steps: 1e5
   # eval_interval: 1e3
 
@@ -11,8 +11,8 @@ env:
 
   eps_steps: 100000
   eps_window: 10
-  learn_steps: 5e5
-  eval_interval: 5e3
+  learn_steps: 1e5
+  eval_interval: 1e3
 
 expert:
   demos: 1
