@@ -2,13 +2,13 @@
 
 env:
   name: PongNoFrameskip-v4
-  demo: PongNoFrameskip-v4_40.pkl
+  demo: PongNoFrameskip-v4_expert_trajs
   replay_mem: 100000
   initial_mem: 5000
   eps_steps: 1e6
   eps_window: 10
-  learn_steps: 1e6
-  eval_interval: 5e3
+  learn_steps: 1e5
+  eval_interval: 1e3
 
 num_seed_steps: 1000
 log_interval: 20

@@ -19,7 +19,7 @@ Typical use case:
 import numpy as np
 
 def main():
-    path = 'experts/CartPole-v1_expert_trajs.npy'
+    path = 'experts/PongNoFrameskip-v4_expert_trajs.npy'
     print("Loading file:", path)
     data = np.load(path, allow_pickle=True)
 
