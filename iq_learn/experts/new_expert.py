@@ -19,7 +19,7 @@ import gymnasium as gym
 from imitation.data import rollout
 
 # Import the argument parser from arguments.py
-from iq_learn.experts.arguments import parse_args
+from arguments import parse_args
 
 from typing import (
     List,
@@ -33,14 +33,15 @@ def train_expert():
         policy=MlpPolicy,
         env=env,
         seed=0,
-        batch_size=arglist.demo_batch_size,  # Using demo_batch_size from args
+        batch_size=64,  # Using demo_batch_size from args
         ent_coef=arglist.ent_coef,
-        learning_rate=arglist.lr,
+        learning_rate=1e-4,
         gamma=arglist.discount,
         n_epochs=20,
-        n_steps=128
+        n_steps=16
     )
-    expert.learn(arglist.n_policy_updates_per_round)  # Using policy updates as timesteps 
+    expert.learn(100000, progress_bar=True)
+
     expert.save(f"./expert_data/{arglist.env_name}")
     return expert
 
@@ -78,7 +79,7 @@ if __name__ == '__main__':
         n_envs=arglist.n_env,
         rng=rng,
         #parallel=True,
-        max_episode_steps=500,
+        #max_episode_steps=50,
     )
 
     print(f"Environment: {arglist.env_name}")

@@ -2,7 +2,7 @@
 
 env:
   name: Ant-v2
-  demo: Ant-v4_expert_trajs
+  demo: Ant-v2_expert_trajs
   # learn_steps: 1e5
   # eval_interval: 1e3
 

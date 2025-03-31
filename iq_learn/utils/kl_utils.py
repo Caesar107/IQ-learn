@@ -1,6 +1,9 @@
 """
-Utility functions for computing KL divergence between policies.
+Utility functions for computing KL divergence between policies, using
+  KL(pi_E || pi_C) = E_{a ~ pi_E}[ log pi_E(a|s) - log pi_C(a|s) ]
+in the discrete case, and a sampling-based approximation in the continuous case.
 """
+
 import numpy as np
 if not hasattr(np, 'bool'):
     np.bool = bool
@@ -8,8 +11,8 @@ import os
 import zipfile
 import torch
 import torch.nn.functional as F
-import numpy as np
 from stable_baselines3 import PPO, DQN
+
 
 def load_expert_policy_from_zip(model_zip_path, env, device="cpu", extract_dir="temp_model"):
     """
@@ -57,28 +60,37 @@ def load_expert_policy_from_zip(model_zip_path, env, device="cpu", extract_dir="
         print(f"Error loading policy parameters: {e}")
         return None
 
+
 def compute_kl_divergence(agent, expert_policy, states, device):
     """
-    Compute KL divergence between expert policy and agent policy for any environment.
+    Compute KL divergence between expert policy and agent policy for any environment
+    using the formula: KL(pi_E || pi_C).
+    
+    - If environment is inferred to be discrete, we do:
+         KL = sum_a pi_E(a|s) [log pi_E(a|s) - log pi_C(a|s)]
+      and average over the batch of states.
+    - If environment is inferred to be continuous, we approximate by sampling
+      from the expert's Gaussian distribution for each state, then compute
+         KL ~ mean( exp(log pi_E(a|s)) * [ log pi_E(a|s) - log pi_C(a|s) ] ).
     
     Args:
-        agent: The IQ-Learn agent
-        expert_policy: Expert policy 
-        states: Tensor of states [batch_size, state_dim]
-        device: Device to perform computation on
+        agent: The IQ-Learn agent (has method get_q_values, or actor, etc.)
+        expert_policy: Expert policy (SB3 model).
+        states: States [batch_size, state_dim].
+        device: Torch device.
         
     Returns:
-        Mean KL divergence value
+        Mean KL divergence (float).
     """
     # Convert states to tensor if needed
-    states = torch.FloatTensor(states).to(device)
-    batch_size = states.shape[0]
+    states_t = torch.as_tensor(states, dtype=torch.float32, device=device)
+    batch_size = states_t.shape[0]
     
     with torch.no_grad():
         try:
-            # First, determine if we're dealing with discrete or continuous actions
+            # Heuristic to figure out if it's discrete or continuous
             if hasattr(expert_policy, "policy") and hasattr(expert_policy.policy, "action_dist"):
-                # Check if expert has a standard action distribution
+                # If the expert has an action_dist, likely continuous if "DiagGaussian" or "Normal"
                 action_dist_type = type(expert_policy.policy.action_dist).__name__
                 is_continuous = action_dist_type in ["Normal", "DiagGaussian", "SquashedNormal"]
             elif hasattr(agent, 'action_dim'):
@@ -88,39 +100,41 @@ def compute_kl_divergence(agent, expert_policy, states, device):
                 # If agent has a non-empty action_shape, assume continuous
                 is_continuous = True
             else:
-                # Try to infer from agent's q_net output
-                q_vals = agent.get_q_values(states) if hasattr(agent, 'get_q_values') else \
-                         agent.getV(states, get_q=True) if hasattr(agent, 'getV') else \
-                         agent.q_net(states) if hasattr(agent, 'q_net') else None
+                # Fallback: check Q-network shape
+                q_vals = None
+                if hasattr(agent, 'get_q_values'):
+                    q_vals = agent.get_q_values(states_t)
+                elif hasattr(agent, 'getV'):
+                    q_vals = agent.getV(states_t, get_q=True)
+                elif hasattr(agent, 'q_net'):
+                    q_vals = agent.q_net(states_t)
                 
                 if q_vals is not None:
-                    # If q_vals has 1 dimension per state, it's likely continuous
-                    is_continuous = len(q_vals.shape) == 2 and q_vals.shape[1] > 10
+                    # if Q shape is [batch_size, large_dim], probably discrete
+                    is_continuous = (q_vals.shape[1] > 10)  # just a guess
                 else:
-                    # Default to discrete if we can't determine
-                    print("Couldn't determine action type, assuming discrete actions")
+                    print("Couldn't determine action type, assuming discrete.")
                     is_continuous = False
             
-            # Process based on action type
-            if not is_continuous:
-                return compute_discrete_kl(agent, expert_policy, states, device)
+            # Dispatch
+            if is_continuous:
+                return compute_continuous_kl_sampling(agent, expert_policy, states_t, device)
             else:
-                return compute_continuous_kl(agent, expert_policy, states, device)
-                
+                return compute_discrete_kl(agent, expert_policy, states_t, device)
         except Exception as e:
             print(f"Error in KL computation: {e}")
-            print(f"Using default KL value")
-            return 0.1  # Return small positive value as fallback
+            return 0.1  # fallback
+
 
 def compute_discrete_kl(agent, expert_policy, states, device):
     """
-    Compute KL divergence for discrete action spaces.
+    Discrete-action KL(pi_E || pi_C):
+      = sum_a pi_E(a|s) [ log pi_E(a|s) - log pi_C(a|s) ].
     """
     batch_size = states.shape[0]
     
-    # Get agent action probabilities
     try:
-        # Get Q-values from agent
+        # 1) Get agent's action probabilities pi_C(a|s)
         if hasattr(agent, 'get_q_values'):
             q_vals = agent.get_q_values(states)
         elif hasattr(agent, 'getV'):
@@ -128,248 +142,252 @@ def compute_discrete_kl(agent, expert_policy, states, device):
         elif hasattr(agent, 'q_net'):
             q_vals = agent.q_net(states)
         else:
-            raise ValueError("Agent doesn't have a method to get Q-values")
+            raise ValueError("Agent doesn't have a method to get Q-values (for discrete).")
         
-        # Convert Q-values to probabilities
         agent_probs = F.softmax(q_vals, dim=-1).clamp(min=1e-7)
-        agent_action_dim = agent_probs.shape[1]
+        action_dim = agent_probs.shape[1]
         
-        # Get expert probabilities
-        if hasattr(expert_policy, "policy") and hasattr(expert_policy.policy, "evaluate_actions"):
-            # Use evaluate_actions to get probabilities for each action
+        # 2) Get expert's action probabilities pi_E(a|s)
+        #    We'll use evaluate_actions on each possible action
+        if (hasattr(expert_policy, "policy") 
+                and hasattr(expert_policy.policy, "evaluate_actions")):
             expert_probs_list = []
-            
-            # For each possible action
-            for action_idx in range(agent_action_dim):
-                # Create a batch of this action for all states
-                actions = torch.full((batch_size, 1), action_idx, 
-                                    dtype=torch.long, device=device)
+            for action_idx in range(action_dim):
+                # batch of that action
+                actions_t = torch.full((batch_size, 1), action_idx, 
+                                       dtype=torch.long, device=device)
                 
                 try:
-                    _, log_probs, _ = expert_policy.policy.evaluate_actions(states, actions)
-                    probs = torch.exp(log_probs)
-                    expert_probs_list.append(probs)
+                    _, logp_a, _ = expert_policy.policy.evaluate_actions(states, actions_t)
+                    p_a = torch.exp(logp_a)  # shape [batch_size, 1]
                 except Exception as e:
-                    print(f"Error getting expert probs for action {action_idx}: {e}")
-                    uniform_prob = torch.ones(batch_size, 1, device=device) / agent_action_dim
-                    expert_probs_list.append(uniform_prob)
+                    print(f"Error in evaluate_actions for action {action_idx}: {e}")
+                    # fallback: uniform
+                    p_a = torch.ones(batch_size, 1, device=device) / action_dim
+                expert_probs_list.append(p_a)
             
-            # Process expert probabilities
-            expert_probs = process_expert_probs(expert_probs_list, agent_probs.shape, batch_size, agent_action_dim, device)
-        
+            # Concatenate along dim=1 => shape [batch_size, action_dim]
+            expert_probs = process_expert_probs(
+                expert_probs_list, agent_probs.shape, batch_size, action_dim, device
+            )
         else:
-            # Fallback: create uniform distribution slightly favoring first action
-            print("Expert doesn't support evaluate_actions, using mock distribution")
-            expert_probs = torch.ones_like(agent_probs) / agent_action_dim
-            expert_probs[:, 0] *= 1.2  # Slight preference for first action
-            expert_probs = expert_probs / expert_probs.sum(dim=1, keepdim=True)
+            # fallback if we can't evaluate
+            print("Expert doesn't support evaluate_actions, using a mock distribution")
+            expert_probs = torch.ones_like(agent_probs) / action_dim
+            expert_probs[:, 0] *= 1.2
+            expert_probs /= expert_probs.sum(dim=1, keepdim=True)
         
-        # Compute KL divergence
+        # 3) Convert to log-probs for the formula
         expert_probs = expert_probs.clamp(min=1e-7)
         agent_probs = agent_probs.clamp(min=1e-7)
-        kl_matrix = expert_probs * torch.log(expert_probs / agent_probs)
-        kl_per_state = torch.sum(kl_matrix, dim=1)
-        kl_mean = torch.mean(kl_per_state)
-        
+        lpE = torch.log(expert_probs)
+        lpC = torch.log(agent_probs)
+
+        # 4) KL(pi_E || pi_C) = sum_a pi_E(a|s)* [ log pi_E - log pi_C ]
+        kl_matrix = torch.exp(lpE) * (lpE - lpC)  # shape [batch_size, action_dim]
+        kl_per_state = kl_matrix.sum(dim=1)      # sum over actions
+        kl_mean = kl_per_state.mean()            # average over batch
+
         return kl_mean.item()
     
     except Exception as e:
-        print(f"Error in discrete KL computation: {e}")
-        return 0.1  # Return small positive value as fallback
+        print(f"Error in discrete KL: {e}")
+        return 0.1
+
+
+def compute_continuous_kl_sampling(agent, expert_policy, states, device, num_samples=10):
+    """
+    Approximate KL(pi_E || pi_C) for continuous actions by sampling from 
+    the expert distribution for each state.
+
+    Steps:
+      1) Extract (mean_E, std_E) from the expert policy => dist_E
+      2) Sample 'num_samples' actions from dist_E for each state
+      3) Compute log prob of those actions under expert dist (log pi_E) 
+         and under current agent dist (log pi_C)
+      4) Use   KL ~ mean(  exp(log pi_E(a)) * [ log pi_E(a) - log pi_C(a) ]  )
+         across all samples & states.
+    """
+    print("Computing continuous KL by sampling from expert distribution ...")
+    batch_size = states.shape[0]
+    
+    # -- 1) Build distributions for Expert and Agent
+    with torch.no_grad():
+        # For Expert:
+        # a) Try PPO policy => get_action_dist or policy(s) => (mean, log_std)
+        expert_mean, expert_log_std = get_mean_logstd(expert_policy, states)
+        
+        # For Agent:
+        agent_mean, agent_log_std = None, None
+        if hasattr(agent, 'actor'):
+            # SAC-style agent => agent.actor returns (mean, log_std)
+            agent_mean, agent_log_std = agent.actor(states)
+        elif (hasattr(agent, 'policy') 
+              and hasattr(agent.policy, 'get_action_distribution')):
+            distA = agent.policy.get_action_distribution(states)
+            agent_mean = distA.loc
+            agent_log_std = distA.scale.log()
+        else:
+            # fallback: sample from the agent multiple times, compute mean & std
+            agent_mean, agent_log_std = approximate_mean_std_by_sampling(agent, states, device, 10)
+
+    # shapes: [batch_size, action_dim]
+    action_dim = expert_mean.shape[1]
+    expert_std = torch.exp(expert_log_std)
+    agent_std = torch.exp(agent_log_std)
+
+    # -- 2) For each state, sample from Expert dist
+    # We'll produce [num_samples, batch_size, action_dim]
+    #   randn => shape [num_samples, batch_size, action_dim]
+    eps = torch.randn(num_samples, batch_size, action_dim, device=device)
+    # each sample: a = mu_E + std_E * eps
+    # broadcast [1, batch_size, action_dim] * [num_samples, batch_size, action_dim]
+    expanded_mean = expert_mean.unsqueeze(0)
+    expanded_std = expert_std.unsqueeze(0)
+    sampled_actions = expanded_mean + expanded_std * eps  # [num_samples, batch_size, action_dim]
+
+    # -- 3) compute log pi_E(a) & log pi_C(a)
+    # We'll do it in a loop or vectorized with the same dist parameters
+    # dist_E, dist_C each is "per-state" => we can do that by manual formula for log_prob
+    # log_prob of a single sample in a diag Gaussian: 
+    #  = sum over dim of [ -0.5*( (a - mu)/sigma )^2 - log(sigma * sqrt(2*pi)) ]
+    # We'll do it vectorized.
+
+    # Dist E
+    # shape matching => [num_samples, batch_size, 1] if we sum across action_dim
+    logpE = compute_diag_gaussian_log_prob(sampled_actions, expert_mean, expert_std)
+    # Dist C
+    logpC = compute_diag_gaussian_log_prob(sampled_actions, agent_mean, agent_std)
+
+    # -- 4) KL ~ mean( exp(log pE) * [ log pE - log pC ] ) across all samples & states
+    # log pE, log pC shapes: [num_samples, batch_size]
+    pointwise_kl = torch.exp(logpE) * (logpE - logpC)  # same shape
+    # average over samples & batch
+    kl_val = pointwise_kl.mean().item()
+    return kl_val
+
 
 def process_expert_probs(expert_probs_list, target_shape, batch_size, action_dim, device):
     """
-    Process expert probability tensors to ensure they have the correct shape.
+    Process expert probability tensors to ensure they have the correct shape 
+    and concatenate them along the action dimension.
     """
-    # Try to fix shapes in expert probability tensors
     fixed_expert_probs_list = []
     for p in expert_probs_list:
         if len(p.shape) == 2 and p.shape[1] == batch_size:
-            # Take the diagonal which represents the correct probabilities
+            # Some weird shape => fix by taking diagonal
             fixed_p = torch.diagonal(p).unsqueeze(1)
             fixed_expert_probs_list.append(fixed_p)
         elif len(p.shape) == 1:
-            # Add missing dimension
             fixed_p = p.unsqueeze(1)
             fixed_expert_probs_list.append(fixed_p)
         elif p.shape == (batch_size, 1):
-            # Already correct shape
             fixed_expert_probs_list.append(p)
         else:
-            # Any other shape, use uniform distribution
             print(f"Unexpected shape {p.shape}, using uniform probability")
             uniform_p = torch.ones(batch_size, 1, device=device) / action_dim
             fixed_expert_probs_list.append(uniform_p)
     
-    # Concatenate and check shape
     try:
         expert_probs = torch.cat(fixed_expert_probs_list, dim=1)
         if expert_probs.shape != target_shape:
             print(f"Shape mismatch: Expert {expert_probs.shape}, Target {target_shape}")
-            # Create a uniform distribution if shapes don't match
+            # fallback => uniform
             expert_probs = torch.ones(target_shape, device=device) / action_dim
-            # Add slight preference for first action
             expert_probs[:, 0] *= 1.2
             expert_probs = expert_probs / expert_probs.sum(dim=1, keepdim=True)
     except Exception as e:
         print(f"Error concatenating expert probs: {e}")
-        # Fallback to uniform distribution
         expert_probs = torch.ones(target_shape, device=device) / action_dim
         expert_probs[:, 0] *= 1.2
         expert_probs = expert_probs / expert_probs.sum(dim=1, keepdim=True)
     
     return expert_probs
 
-def compute_continuous_kl(agent, expert_policy, states, device):
-    """
-    Compute KL divergence for continuous action spaces (approximate).
-    For continuous actions, we compute a simplified KL based on 
-    comparing the mean actions from both policies.
-    """
-    print("Computing KL divergence for continuous action space")
-    try:
-        # Get agent's predicted action distribution
-        if hasattr(agent, 'actor'):
-            # SAC-style agent
-            agent_mean, agent_log_std = agent.actor(states)
-        elif hasattr(agent, 'policy') and hasattr(agent.policy, 'get_action_distribution'):
-            # PPO-style agent
-            agent_dist = agent.policy.get_action_distribution(states)
-            agent_mean = agent_dist.loc
-            agent_log_std = agent_dist.scale.log()
-        else:
-            # Fallback: sample actions and compute mean/std
-            actions = []
-            for _ in range(10):  # Sample 10 times per state
-                if hasattr(agent, 'choose_action'):
-                    action = agent.choose_action(states, sample=True)
-                elif hasattr(agent, 'select_action'):
-                    action = agent.select_action(states)
-                else:
-                    raise ValueError("Agent doesn't support action sampling")
-                actions.append(action)
-            
-            # Compute mean and std from samples
-            actions = torch.stack(actions)
-            agent_mean = actions.mean(dim=0)
-            agent_std = actions.std(dim=0).clamp(min=1e-6)
-            agent_log_std = torch.log(agent_std)
-        
-        # Get expert's predicted action distribution
-        if hasattr(expert_policy, 'policy') and hasattr(expert_policy.policy, 'evaluate_actions'):
-            # Try to sample a random action to evaluate
-            expert_mean, expert_log_std = expert_policy.policy(states)
-        elif isinstance(expert_policy, torch.nn.Module) and hasattr(expert_policy, 'forward'):
-            # Direct module with forward method
-            expert_mean, expert_log_std = expert_policy(states)
-        else:
-            # Fallback: create a standard normal distribution
-            action_dim = agent_mean.shape[1]
-            expert_mean = torch.zeros_like(agent_mean)
-            expert_log_std = torch.zeros_like(agent_log_std)
-        
-        # Compute approximate KL between two Gaussians
-        # KL(p||q) = log(σq/σp) + (σp^2 + (μp-μq)^2)/(2σq^2) - 1/2
-        expert_var = torch.exp(2 * expert_log_std)
-        agent_var = torch.exp(2 * agent_log_std)
-        
-        kl_divergence = (
-            expert_log_std - agent_log_std
-            + (agent_var + (expert_mean - agent_mean)**2) / (2 * expert_var)
-            - 0.5
-        )
-        
-        # Sum over action dimensions, mean over batch
-        kl_per_state = kl_divergence.sum(dim=1)
-        kl_mean = kl_per_state.mean()
-        
-        return kl_mean.item()
-    
-    except Exception as e:
-        print(f"Error in continuous KL computation: {e}")
-        return 0.1  # Return small positive value as fallback
 
-def simplified_kl_divergence(agent, expert_policy, states, device):
+# ------------------------------------------------------------------
+# Helper for approximate continuous KL
+# ------------------------------------------------------------------
+
+def get_mean_logstd(sb3_model, states):
     """
-    Simpler KL calculation when expert_policy doesn't have proper distribution methods.
+    Attempt to extract a (mean, log_std) from a SB3 PPO model's policy,
+    given states. If this fails, fallback to zeros.
     """
-    # Create mock discrete actions for all possible actions
-    if hasattr(agent, 'action_dim'):
-        action_dim = agent.action_dim
+    if hasattr(sb3_model, 'policy') and hasattr(sb3_model.policy, 'evaluate_actions'):
+        # Some SB3 policies let you do policy(states) directly => (mean, log_std)
+        try:
+            # e.g. stable_baselines3.common.policies.ActorCriticPolicy __call__
+            mean, log_std = sb3_model.policy(states)
+            return mean, log_std
+        except:
+            pass
+    
+    # fallback => create standard normal
+    if hasattr(sb3_model, 'action_space') and hasattr(sb3_model.action_space, 'shape'):
+        action_dim = sb3_model.action_space.shape[0]
     else:
-        # Try to infer action dimension from Q network output
-        with torch.no_grad():
-            if hasattr(agent, 'q_net'):
-                test_q = agent.q_net(states[:1])
-                action_dim = test_q.shape[-1]
-            else:
-                # Default to 2 for CartPole
-                action_dim = 2
-    
-    # Generate all possible actions
-    all_actions = torch.arange(action_dim, device=device)
+        # default
+        action_dim = 1
     batch_size = states.shape[0]
-    
-    # Repeat states for each action
-    states_expanded = states.repeat_interleave(action_dim, dim=0)
-    actions_expanded = all_actions.repeat(batch_size)
-    
-    # Get expert probabilities
-    with torch.no_grad():
-        if isinstance(expert_policy, torch.nn.Module):  # Mock expert
-            expert_probs_full = expert_policy(states)
-        elif hasattr(expert_policy, "predict"):  # SB3 model
-            # Reshape for SB3 predict method
-            states_np = states.cpu().numpy()
-            expert_logits = []
-            
-            for state in states_np:
-                _, _ = expert_policy.predict(state, deterministic=True)
-                if hasattr(expert_policy, 'q_net'):  # DQN
-                    q_values = expert_policy.q_net(torch.FloatTensor(state).unsqueeze(0).to(device))
-                    expert_logits.append(q_values.squeeze(0))
-                else:
-                    # Return uniform distribution as fallback
-                    uniform = torch.ones(action_dim, device=device) / action_dim
-                    expert_logits.append(uniform)
-            
-            expert_probs_full = torch.stack(expert_logits)
-            if not torch.is_tensor(expert_probs_full):
-                expert_probs_full = torch.FloatTensor(expert_probs_full).to(device)
-            
-            # Convert to probabilities if they're logits
-            if expert_probs_full.sum(dim=-1).mean() != 1.0:
-                expert_probs_full = F.softmax(expert_probs_full, dim=-1)
+    mean_zeros = torch.zeros(batch_size, action_dim, device=states.device)
+    log_std_zeros = torch.zeros_like(mean_zeros) - 1.0  # e.g. std=0.3679
+    return mean_zeros, log_std_zeros
+
+
+def approximate_mean_std_by_sampling(agent, states, device, n=10):
+    """
+    Fallback: sample 'n' actions from the agent for each state, approximate mean & log_std.
+    """
+    batch_size = states.shape[0]
+    # We'll store [n, batch_size, action_dim]
+    actions_collector = []
+    for _ in range(n):
+        if hasattr(agent, 'choose_action'):
+            # e.g. agent.choose_action(obs, sample=True)
+            a = agent.choose_action(states, sample=True)
+        elif hasattr(agent, 'select_action'):
+            a = agent.select_action(states)
         else:
-            # Return uniform distribution as fallback
-            expert_probs_full = torch.ones(batch_size, action_dim, device=device) / action_dim
+            # random fallback
+            a = torch.randn(batch_size, 1, device=device)
+        # ensure shape [batch_size, action_dim]
+        if not isinstance(a, torch.Tensor):
+            a = torch.as_tensor(a, device=device, dtype=torch.float32)
+        if len(a.shape) == 1:
+            a = a.unsqueeze(1)
+        actions_collector.append(a)
+    all_acts = torch.stack(actions_collector, dim=0)  # [n, batch_size, action_dim]
+    mean_a = all_acts.mean(dim=0)
+    std_a = all_acts.std(dim=0).clamp_min(1e-6)
+    log_std_a = torch.log(std_a)
+    return mean_a, log_std_a
+
+
+def compute_diag_gaussian_log_prob(actions, mean, std):
+    """
+    Compute log prob under diagonal Gaussian N(mean, std^2),
+    for 'actions' shape: [num_samples, batch_size, action_dim].
+    'mean', 'std' shape: [batch_size, action_dim].
+    Return shape: [num_samples, batch_size].
+    """
+    num_samples, batch_size, action_dim = actions.shape
+    # Expand mean & std to [num_samples, batch_size, action_dim]
+    expanded_mean = mean.unsqueeze(0).expand(num_samples, batch_size, action_dim)
+    expanded_std = std.unsqueeze(0).expand(num_samples, batch_size, action_dim)
     
-    # Get agent probabilities
-    with torch.no_grad():
-        if hasattr(agent, 'get_q_values'):
-            q_vals = agent.get_q_values(states)
-        elif hasattr(agent, 'getV') and hasattr(agent.getV, '__call__'):
-            q_vals = agent.getV(states, get_q=True)
-        elif hasattr(agent, 'q_net'):
-            q_vals = agent.q_net(states)
-        else:
-            # Return uniform distribution as fallback
-            agent_probs_full = torch.ones(batch_size, action_dim, device=device) / action_dim
-            
-        # Convert to probabilities
-        if 'agent_probs_full' not in locals():
-            agent_probs_full = F.softmax(q_vals, dim=-1)
-            
-    # Clamp to avoid numerical instability
-    expert_probs_full = expert_probs_full.clamp(min=1e-7)
-    agent_probs_full = agent_probs_full.clamp(min=1e-7)
-    
-    # Compute KL divergence
-    kl_matrix = expert_probs_full * torch.log(expert_probs_full / agent_probs_full)
-    kl_per_state = torch.sum(kl_matrix, dim=1)
-    kl_mean = torch.mean(kl_per_state)
-    
-    return kl_mean.item()
+    # Gaussian formula:
+    # log N(a|m,s) = - sum_i [ 0.5*((a-m)/s)**2 + log(s * sqrt(2*pi)) ]
+    # We'll do sum over dim=2 => shape [num_samples, batch_size]
+    var = expanded_std**2
+    log_probs = -0.5 * ((actions - expanded_mean)**2 / var).sum(dim=2)
+    log_probs = log_probs - (expanded_std.log() + 0.5 * np.log(2*np.pi)).sum(dim=2)
+    return log_probs
+
+
+# ------------------------------------------------------------------
+# Optional: fallback or "mock" experts
+# ------------------------------------------------------------------
 
 def create_mock_expert(num_actions, device="cpu"):
     """
@@ -393,6 +411,7 @@ def create_mock_expert(num_actions, device="cpu"):
     
     mock_expert = MockExpert(num_actions).to(device)
     return mock_expert
+
 
 def create_mock_continuous_expert(action_dim, device="cpu"):
     """
@@ -423,6 +442,7 @@ def create_mock_continuous_expert(action_dim, device="cpu"):
     model = MockContinuousExpert(action_dim).to(device)
     return model
 
+
 def load_expert_policy(expert_path, env_name, device="cpu", env=None):
     """
     Load expert policy using the manual extraction approach for any environment.
@@ -436,11 +456,9 @@ def load_expert_policy(expert_path, env_name, device="cpu", env=None):
     Returns:
         Loaded expert policy model or None if loading fails
     """
-    # Normalize environment name to lowercase for path consistency
     env_name_normalized = env_name.lower()
     
-    # Handle potential path formats
-    # If expert_path is a directory, construct path to potential zip file
+    # If expert_path is a directory, see if there's a known .zip
     if os.path.isdir(expert_path):
         possible_paths = [
             os.path.join(expert_path, f"{env_name_normalized}.zip"),
@@ -453,7 +471,7 @@ def load_expert_policy(expert_path, env_name, device="cpu", env=None):
                 expert_path = path
                 break
     
-    # Try loading from the given path
+    # Try loading
     if os.path.exists(expert_path):
         try:
             print(f"Attempting to load expert from {expert_path}")
@@ -469,31 +487,30 @@ def load_expert_policy(expert_path, env_name, device="cpu", env=None):
             f"./experts/{env_name_normalized}.zip",
             f"./experts/{env_name}.zip"
         ]
-        
         for alt_path in alt_paths:
             if os.path.exists(alt_path):
                 print(f"Trying alternate path: {alt_path}")
                 return load_expert_policy_from_zip(alt_path, env, device)
-        
         print("No expert model found in standard locations.")
     except Exception as e:
         print(f"Failed to load expert from alternate paths: {e}")
     
-    # Create mock expert as fallback
+    # final fallback => mock
     if env is not None:
         try:
-            if hasattr(env.action_space, 'n'):  # Discrete action space
+            if hasattr(env.action_space, 'n'):  # Discrete
                 num_actions = env.action_space.n
-                print(f"Creating mock expert policy with {num_actions} discrete actions for testing")
+                print(f"Creating mock expert policy with {num_actions} discrete actions.")
                 return create_mock_expert(num_actions, device)
-            elif hasattr(env.action_space, 'shape'):  # Continuous action space
+            elif hasattr(env.action_space, 'shape'):  # Continuous
                 action_dim = env.action_space.shape[0]
-                print(f"Creating mock expert policy with {action_dim}-dimensional continuous actions")
+                print(f"Creating mock expert policy with {action_dim}-dim continuous actions.")
                 return create_mock_continuous_expert(action_dim, device)
             else:
-                print("Unknown action space type, cannot create mock expert")
+                print("Unknown action space type, cannot create mock expert.")
                 return None
         except Exception as e:
             print(f"Error creating mock expert: {e}")
             return None
+    
     return None

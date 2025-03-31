@@ -35,7 +35,7 @@ We show some examples that push the boundaries of imitation learning using IQ-Le
 ### 1. CartPole-v1 using 1 demo subsampled 20 times with fully *offline* imitation  
 
 ```
-python train_iq.py agent=softq method=iq env=cartpole expert.demos=1 expert.subsample_freq=20 agent.init_temp=0.001 method.chi=True method.loss=value_expert
+python train_iq.py agent=softq method=iq env=cartpole expert.demos=64 expert.subsample_freq=20 agent.init_temp=0.001 method.chi=True method.loss=value_expert
 ```
 
 IQ-Learn is the only method thats reaches the expert env reward of **500** (requiring only 3k training steps and less than 30 secs!!)
@@ -49,7 +49,9 @@ python train_iq.py agent=softq method=iq env=lunarlander expert.demos=64 expert.
 ```
 python train_iq.py agent=softq method=iq env=acrobot expert.demos=64 expert.subsample_freq=20 agent.init_temp=0.001 method.chi=True method.loss=value_expert
 ```
-
+```
+python train_iq.py env=bipedalwalker agent=sac expert.demos=64 method.loss=v0 method.regularize=True agent.actor_lr=3e-05 seed=0 agent.init_temp=1
+```
 
 ### 2. Playing Pong at human performance
 
@@ -67,7 +69,7 @@ Again, IQ-Learn is the only method thats reaches the expert env reward of **21**
 ### 3. Controlling a Humanoid with imitation of a single expert
 
 ```
-python train_iq.py env=humanoid agent=sac expert.demos=1 method.loss=v0 method.regularize=True agent.actor_lr=3e-05 seed=0 agent.init_temp=1
+python train_iq.py env=humanoid agent=sac expert.demos=64 method.loss=v0 method.regularize=True agent.actor_lr=3e-05 seed=0 agent.init_temp=1
 ```
 
 IQ-Learn learns to control a full humanoid at expert performance using a single demonstration reaching the expert env reward of **5300** <br>
