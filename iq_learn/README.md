@@ -32,6 +32,11 @@ IQ-Learn can be implemented on top of most existing RL methods (off-policy & on-
 
 We show some examples that push the boundaries of imitation learning using IQ-Learn:
 
+###if you want to generate any expert,use iq_learn/experts/new_expert.py by
+```
+python new_expert.py --env_name Ant-v2
+```
+
 ### 1. CartPole-v1 using 1 demo subsampled 20 times with fully *offline* imitation  
 
 ```
@@ -70,6 +75,9 @@ Again, IQ-Learn is the only method thats reaches the expert env reward of **21**
 
 ```
 python train_iq.py env=humanoid agent=sac expert.demos=64 method.loss=v0 method.regularize=True agent.actor_lr=3e-05 seed=0 agent.init_temp=1
+```
+```
+python train_iq.py env=ant agent=sac expert.demos=8 method.loss=v0 method.regularize=True agent.actor_lr=3e-05 seed=0 agent.init_temp=1
 ```
 
 IQ-Learn learns to control a full humanoid at expert performance using a single demonstration reaching the expert env reward of **5300** <br>

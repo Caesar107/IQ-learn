@@ -38,9 +38,9 @@ def train_expert():
         learning_rate=1e-4,
         gamma=arglist.discount,
         n_epochs=20,
-        n_steps=16
+        n_steps=64
     )
-    expert.learn(100000, progress_bar=True)
+    expert.learn(10000, progress_bar=True)
 
     expert.save(f"./expert_data/{arglist.env_name}")
     return expert
