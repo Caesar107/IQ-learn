@@ -40,7 +40,7 @@ def train_expert():
         n_epochs=20,
         n_steps=64
     )
-    expert.learn(10000, progress_bar=True)
+    expert.learn(100000, progress_bar=True)
 
     expert.save(f"./expert_data/{arglist.env_name}")
     return expert
