@@ -2,12 +2,13 @@
 
 env:
   name: QbertNoFrameskip-v4
-  demo: QbertNoFrameskip-v4_30.pkl
+  demo: QbertNoFrameskip-v4_expert_trajs
   replay_mem: 150000
   initial_mem: 5000
   eps_steps: 1e6
   eps_window: 10
-  learn_steps: 1e6
+  learn_steps: 1e5
+  eval_interval: 1e3
 
 expert:
   demos: 20
