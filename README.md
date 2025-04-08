@@ -55,12 +55,8 @@ This is useful when you have custom environments or datasets and want to apply I
 
 ### **Usage Example:**  
 ```bash
-python convert_transitions.py --input expert_data.pkl --output processed_data.pt
+python convert_transitions.py --env_name 
 ```
-
-### **Options:**  
-- `--input`: Path to your raw expert data file (e.g., a pickle or JSON file).  
-- `--output`: Output file path in IQ-Learn-compatible `.pt` format.  
 
 > Make sure your expert data includes state, action, next_state, reward, and done fields.
 
