@@ -3,16 +3,14 @@
 env:
   name: Humanoid-v2
   demo: Humanoid-v4_expert_trajs
-  # learn_steps: 1e5
-  # eval_interval: 1e3
+  learn_steps: 1e5
+  eval_interval: 1e3
 
   replay_mem: 1e6
   # initial_mem: 10000
 
   eps_steps: 100000
   eps_window: 10
-  learn_steps: 5e5
-  eval_interval: 5e3
 
 expert:
   demos: 64

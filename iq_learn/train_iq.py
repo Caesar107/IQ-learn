@@ -29,7 +29,7 @@ from agent import make_agent
 from utils.utils import eval_mode, average_dicts, get_concat_samples, evaluate, soft_update, hard_update
 from utils.logger import Logger
 from iq import iq_loss
-from utils.kl_utils import compute_kl_divergence, load_expert_policy
+from iq_learn.utils.kl_utils_discreat import compute_kl_divergence, load_expert_policy
 
 torch.set_num_threads(2)
 
@@ -211,32 +211,7 @@ def main(cfg: DictConfig):
                     losses = {}
                 ######
 
-                # Calculate and log KL divergence periodically - keep this separate from main training
-                if learn_steps % args.env.eval_interval == 0:
-                    if expert_policy is not None and expert_memory_replay.size() > 0:
-                        with torch.no_grad():  # Make sure we don't track gradients for KL
-                            try:
-                                # Sample states from expert memory for KL calculation
-                                expert_states = expert_memory_replay.sample_states(batch_size=min(128, expert_memory_replay.size()))
-                                kl_value = compute_kl_divergence(agent, expert_policy, expert_states, device)
-                                
-                                # Direct logging to tensorboard
-                                scaled_step = learn_steps // 100
-                                print(f"KL divergence at step {scaled_step}: {kl_value:.6f}")
-                                writer.add_scalar('train/kl_divergence', kl_value, global_step=scaled_step)
-                                
-                                scaled_step = learn_steps // 100
-                                # Also log to logger
-                                logger.log('train/kl_divergence', kl_value, scaled_step)
-                                
-                                # Force tensorboard to write files immediately
-                                writer.flush()
-                            except Exception as e:
-                                import traceback
-                                print(f"Error calculating KL divergence: {e}")
-                                traceback.print_exc()
-                                # KL calculation failed, but don't let it affect training
-                                pass
+        
 
                 # Log all metrics to tensorboard
                 if learn_steps % args.log_interval == 0:
@@ -248,9 +223,34 @@ def main(cfg: DictConfig):
             if done:
                 break
             state = next_state
+        
+        # Calculate and log KL divergence periodically - keep this separate from main training
+        #if expert_policy is not None and expert_memory_replay.size() > 0:
+        with torch.no_grad():  # Make sure we don't track gradients for KL
+            try:
+                # Sample states from expert memory for KL calculation
+                expert_states = expert_memory_replay.sample_states(batch_size=min(128, expert_memory_replay.size()))
+                kl_value = compute_kl_divergence(agent, expert_policy, expert_states, device)
+                kl_value = abs(kl_value) * 100
+
+                # Direct logging to tensorboard
+                print(f"KL divergence at step {scaled_step}: {kl_value:.6f}")
+
+                #logger.log('train/kl_divergence', kl_value, scaled_step)
+                
+                # Force tensorboard to write files immediately
+                #writer.flush()
+            except Exception as e:
+                import traceback
+                print(f"Error calculating KL divergence: {e}")
+                traceback.print_exc()
+                # KL calculation failed, but don't let it affect training
+                pass
 
         rewards_window.append(episode_reward)
         scaled_step = learn_steps // 100
+        if online_memory_replay.size() > INITIAL_MEMORY:
+            logger.log('train/kl_divergence', kl_value, scaled_step)
         logger.log('train/episode', epoch, scaled_step)
         logger.log('train/episode_reward', episode_reward, scaled_step)
         logger.log('train/duration', time.time() - start_time, scaled_step)

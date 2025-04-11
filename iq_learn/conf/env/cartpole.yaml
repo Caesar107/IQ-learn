@@ -16,3 +16,5 @@ eval:
 
 q_net:
   _target_: agent.softq_models.OfflineQNetwork
+
+log_interval: 1

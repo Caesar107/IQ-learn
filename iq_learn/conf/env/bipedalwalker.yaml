@@ -38,5 +38,5 @@ train:
 q_net:
   _target_: agent.sac_models.SingleQCritic
 
-log_interval: 500   
+log_interval: 100   
 num_actor_updates: 1
