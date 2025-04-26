@@ -1,3 +1,9 @@
+# python read_expert_rewards.py /home/yche767/IQ-learn/iq_learn/experts/Hopper-v2.zip --env Hopper-v2 --episodes 100 -o hopper_v2_rewards.npy
+# python read_expert_rewards.py /home/yche767/IQ-learn/iq_learn/experts/Walker2d-v2.zip --env Walker2d-v2 --episodes 100 -o walker2d_v2_rewards.npy
+
+
+
+
 import argparse
 import gym
 import numpy as np
@@ -58,7 +64,7 @@ def main():
 
     rewards = extract_rewards(args.model_zip, args.env, args.episodes)
     # Save rewards to disk
-    np.save(args.output, rewards)
+    #np.save(args.output, rewards)
     print(f"Saved {len(rewards)} episode rewards to {args.output}")
     print(f"Mean reward: {rewards.mean():.2f}, Std: {rewards.std():.2f}")
 

@@ -33,14 +33,14 @@ def train_expert():
         policy=MlpPolicy,
         env=env,
         seed=0,
-        batch_size=64,  # Using demo_batch_size from args
-        ent_coef=arglist.ent_coef,
-        learning_rate=1e-4,
-        gamma=arglist.discount,
-        n_epochs=20,
-        n_steps=64
+        batch_size=64,         # 更大 batch 提高样本利用率
+        ent_coef=0.01,           # 加大探索，默认是 0.0~0.01
+        learning_rate=3e-4,      # SB3 默认推荐值
+        gamma=0.99,              # 折扣率，默认合理
+        n_epochs=10,             # 每轮少训练一点，避免过拟合
+        n_steps=16            # 单次 rollout 时间更长，适合 mujoco
     )
-    expert.learn(100000, progress_bar=True)
+    expert.learn(60000, progress_bar=True)
 
     expert.save(f"./expert_data/{arglist.env_name}")
     return expert
@@ -55,7 +55,7 @@ def sample_expert_transitions(expert: policies):
         rng=rng,
     )
     transitions = rollout.flatten_trajectories(trajs)
-
+    #transitions = transitions[:arglist.transition_truncate_len]
     torch.save(transitions, f"./expert_data/transitions_{arglist.env_name}.npy")
     # torch.save(rollouts,f"./imitation/imitation_expert/rollouts_{env_name}.npy")
 

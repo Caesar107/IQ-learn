@@ -29,7 +29,7 @@ from agent import make_agent
 from utils.utils import eval_mode, average_dicts, get_concat_samples, evaluate, soft_update, hard_update
 from utils.logger import Logger
 from iq import iq_loss
-from iq_learn.utils.kl_utils_discreat import compute_kl_divergence, load_expert_policy
+from utils.kl_utils import compute_kl_divergence, load_expert_policy
 
 torch.set_num_threads(2)
 
@@ -248,7 +248,7 @@ def main(cfg: DictConfig):
                 pass
 
         rewards_window.append(episode_reward)
-        scaled_step = learn_steps // 100
+        scaled_step = learn_steps // 10
         if online_memory_replay.size() > INITIAL_MEMORY:
             logger.log('train/kl_divergence', kl_value, scaled_step)
         logger.log('train/episode', epoch, scaled_step)

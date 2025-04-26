@@ -1,4 +1,5 @@
 # @package _global_
+#Mean reward: 186.93, Std: 192.20
 
 env:
   name: Ant-v2
