@@ -38,9 +38,9 @@ def train_expert():
         learning_rate=3e-4,      # SB3 默认推荐值
         gamma=0.99,              # 折扣率，默认合理
         n_epochs=10,             # 每轮少训练一点，避免过拟合
-        n_steps=16            # 单次 rollout 时间更长，适合 mujoco
+        n_steps=64            # 单次 rollout 时间更长，适合 mujoco
     )
-    expert.learn(60000, progress_bar=True)
+    expert.learn(70000, progress_bar=True)
 
     expert.save(f"./expert_data/{arglist.env_name}")
     return expert
